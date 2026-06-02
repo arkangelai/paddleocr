@@ -45,6 +45,30 @@ paddleocr images --path document.pdf --output-dir ./pages --dpi 150
 
 All text output is markdown. When using `--output-dir`, each page is saved as `page_01.md`, `page_02.md`, etc.
 
+## Performance
+
+Benchmarked on Apple M4 (10 cores, 24 GB RAM) with a 50-page Colombian medical document (SOAT), 300 DPI scans. Each page measured 3 times.
+
+| Metric | Value |
+|--------|-------|
+| Cold start (model load) | ~4.5s |
+| Average time per page | ~26s |
+| Throughput | ~2.3 pages/min |
+| RAM (model load) | ~1.2 GB |
+| RAM peak (during OCR) | ~7.5 GB |
+| Chars extracted per page | ~2,200 avg |
+
+### Resource requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| RAM | 10 GB | 16 GB |
+| CPU | 2 cores | 4+ cores |
+| Disk | ~600 MB | ~1 GB |
+| GPU | Not required | Not required |
+
+Processing is CPU-bound at ~100% utilization during OCR. Pages are processed sequentially — a 50-page document takes ~22 minutes.
+
 ## PaddleOCR config
 
 Validated configuration from benchmark testing on Spanish medical documents:
