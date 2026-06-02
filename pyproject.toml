@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paddleocr-cli"
+version = "0.1.0"
+description = "CLI for PDF text extraction using PaddleOCR"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "click>=8.0",
+    "pymupdf>=1.25",
+    "paddleocr>=3.6",
+    "paddlepaddle>=3.3",
+    "Pillow>=10.0",
+]
+
+[project.scripts]
+paddleocr = "paddleocr_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
