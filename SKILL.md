@@ -53,11 +53,17 @@ Built on a PaddleOCR configuration validated by benchmark on 50-page Colombian m
    paddleocr ocr --path /path/to/document.pdf --output-dir ./full-output
    ```
 
+6. **Speed up with parallel workers** — use `--workers` on machines with 16+ GB RAM:
+   ```bash
+   paddleocr ocr --path /path/to/document.pdf --workers 2 --output-dir ./output
+   ```
+   Each worker loads its own PaddleOCR instance (~8 GB each). A RAM warning is printed if the machine doesn't have enough.
+
 ### Command reference
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
-| `paddleocr ocr` | Extract text via OCR | `--path`, `--pages`, `--output-dir` |
+| `paddleocr ocr` | Extract text via OCR | `--path`, `--pages`, `--output-dir`, `--workers` |
 | `paddleocr info` | PDF metadata | `--path` |
 | `paddleocr images` | Pages to PNG | `--path`, `--pages`, `--output-dir`, `--dpi` |
 
@@ -68,6 +74,7 @@ Built on a PaddleOCR configuration validated by benchmark on 50-page Colombian m
 | `--path` | all | yes | — | Path to PDF file |
 | `--pages` | ocr, images | no | all | Comma-separated pages or ranges (e.g. `1,3,5` or `1-10`) |
 | `--output-dir` | ocr, images | ocr: no, images: yes | stdout (ocr) | Directory for output files |
+| `--workers` | ocr | no | 1 | Parallel workers. Each needs ~8 GB RAM |
 | `--dpi` | images | no | 300 | Image resolution |
 
 ## Pitfalls
