@@ -1,5 +1,6 @@
 """CLI entry point for paddleocr."""
 
+import os
 from pathlib import Path
 
 import click
@@ -13,6 +14,8 @@ from paddleocr_cli.output import (
     write_pages,
 )
 
+RAM_PER_WORKER_GB = 8
+
 
 def validate_pdf_path(ctx, param, value):
     path = Path(value)
@@ -25,6 +28,36 @@ def validate_pdf_path(ctx, param, value):
     return str(path.resolve())
 
 
+def _get_available_ram_gb() -> float | None:
+    try:
+        if hasattr(os, "sysconf"):
+            pages = os.sysconf("SC_PHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            if pages > 0 and page_size > 0:
+                return (pages * page_size) / (1024 ** 3)
+        import subprocess
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip()) / (1024 ** 3)
+    except Exception:
+        pass
+    return None
+
+
+def _warn_ram(workers: int):
+    needed = workers * RAM_PER_WORKER_GB
+    available = _get_available_ram_gb()
+    if available and needed > available:
+        click.echo(
+            f"Warning: {workers} workers need ~{needed} GB RAM, "
+            f"but this machine has {available:.0f} GB. Risk of OOM.",
+            err=True,
+        )
+
+
 @click.group()
 @click.version_option(version="0.1.0")
 def main():
@@ -35,12 +68,18 @@ def main():
 @click.option("--path", required=True, callback=validate_pdf_path, help="Path to PDF file.")
 @click.option("--pages", default=None, help="Pages to process (e.g. 1,3,5 or 1-5). Default: all.")
 @click.option("--output-dir", default=None, help="Save page_XX.md files to this directory.")
-def ocr(path, pages, output_dir):
+@click.option("--workers", default=1, type=int, help="Number of parallel workers. Default: 1.")
+def ocr(path, pages, output_dir, workers):
     """Extract text from PDF pages using PaddleOCR."""
     page_list = resolve_pages(path, pages)
-    click.echo(f"Processing {len(page_list)} page(s)...", err=True)
 
-    results = ocr_pages(path, page_list)
+    if workers > 1:
+        _warn_ram(workers)
+        click.echo(f"Processing {len(page_list)} page(s) with {workers} workers...", err=True)
+    else:
+        click.echo(f"Processing {len(page_list)} page(s)...", err=True)
+
+    results = ocr_pages(path, page_list, workers=workers)
 
     if output_dir:
         written = write_pages(results, output_dir)

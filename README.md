@@ -26,6 +26,9 @@ paddleocr ocr --path document.pdf --pages 1,3,5
 
 # Page range to files
 paddleocr ocr --path document.pdf --pages 1-10 --output-dir ./output
+
+# Parallel processing (2 workers, needs ~16 GB RAM)
+paddleocr ocr --path document.pdf --workers 2 --output-dir ./output
 ```
 
 ### PDF metadata
@@ -67,7 +70,7 @@ Benchmarked on Apple M4 (10 cores, 24 GB RAM) with a 50-page Colombian medical d
 | Disk | ~600 MB | ~1 GB |
 | GPU | Not required | Not required |
 
-Processing is CPU-bound at ~100% utilization during OCR. Pages are processed sequentially — a 50-page document takes ~22 minutes.
+Processing is CPU-bound at ~100% utilization during OCR. With `--workers 1` (default), a 50-page document takes ~22 minutes. Use `--workers 2` to cut that in half (~11 min) at the cost of ~16 GB RAM.
 
 ## PaddleOCR config
 

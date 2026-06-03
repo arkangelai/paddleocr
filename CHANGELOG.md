@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-06-02
+
+### Added
+
+- `--workers N` flag for `paddleocr ocr` — parallel page processing using multiprocessing
+- RAM warning on stderr when workers * 8 GB exceeds available system memory
+
 ## 0.1.0 — 2026-06-02
 
 Initial release.
