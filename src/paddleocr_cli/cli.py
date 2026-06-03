@@ -28,20 +28,13 @@ def validate_pdf_path(ctx, param, value):
     return str(path.resolve())
 
 
-def _get_available_ram_gb() -> float | None:
+def _get_total_ram_gb() -> float | None:
     try:
         if hasattr(os, "sysconf"):
             pages = os.sysconf("SC_PHYS_PAGES")
             page_size = os.sysconf("SC_PAGE_SIZE")
             if pages > 0 and page_size > 0:
                 return (pages * page_size) / (1024 ** 3)
-        import subprocess
-        result = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            return int(result.stdout.strip()) / (1024 ** 3)
     except Exception:
         pass
     return None
@@ -49,11 +42,11 @@ def _get_available_ram_gb() -> float | None:
 
 def _warn_ram(workers: int):
     needed = workers * RAM_PER_WORKER_GB
-    available = _get_available_ram_gb()
-    if available and needed > available:
+    total = _get_total_ram_gb()
+    if total and needed > total:
         click.echo(
             f"Warning: {workers} workers need ~{needed} GB RAM, "
-            f"but this machine has {available:.0f} GB. Risk of OOM.",
+            f"but this machine has {total:.0f} GB total. Risk of OOM.",
             err=True,
         )
 
@@ -68,7 +61,7 @@ def main():
 @click.option("--path", required=True, callback=validate_pdf_path, help="Path to PDF file.")
 @click.option("--pages", default=None, help="Pages to process (e.g. 1,3,5 or 1-5). Default: all.")
 @click.option("--output-dir", default=None, help="Save page_XX.md files to this directory.")
-@click.option("--workers", default=1, type=int, help="Number of parallel workers. Default: 1.")
+@click.option("--workers", default=1, type=click.IntRange(min=1), help="Number of parallel workers. Default: 1.")
 def ocr(path, pages, output_dir, workers):
     """Extract text from PDF pages using PaddleOCR."""
     page_list = resolve_pages(path, pages)

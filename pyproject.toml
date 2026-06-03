@@ -16,8 +16,14 @@ dependencies = [
     "Pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
 [project.scripts]
 paddleocr = "paddleocr_cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
