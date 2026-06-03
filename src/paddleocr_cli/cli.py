@@ -1,6 +1,9 @@
 """CLI entry point for paddleocr-cli."""
 
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -106,3 +109,141 @@ def images(path, pages, output_dir, dpi):
 
     for f in exported:
         click.echo(f"Saved: {f}", err=True)
+
+
+# ---------------------------------------------------------------------------
+# paddleocr setup
+# ---------------------------------------------------------------------------
+
+_SOURCE_BASE = Path.home() / ".paddlex" / "official_models"
+_MODELS_DIR = Path(__file__).parent / "models"
+
+_MODELS = [
+    # (source_dir_name, onnx_filename, required)
+    ("PP-OCRv5_server_det", "PP-OCRv5_server_det.onnx", True),
+    ("latin_PP-OCRv5_mobile_rec", "latin_PP-OCRv5_mobile_rec.onnx", True),
+    ("PP-LCNet_x1_0_doc_ori", "PP-LCNet_x1_0_doc_ori.onnx", False),
+    ("PP-LCNet_x1_0_textline_ori", "PP-LCNet_x1_0_textline_ori.onnx", False),
+]
+
+
+@main.command()
+@click.option("--force", is_flag=True, default=False, help="Reconvert models even if ONNX files already exist.")
+def setup(force):
+    """Convert PaddlePaddle models to ONNX format for local inference."""
+    # Check paddle2onnx is installed
+    if shutil.which("paddle2onnx") is None:
+        click.echo(
+            "paddle2onnx not found. Install it: pip install paddle2onnx>=2.0.1",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    # Warn on Python >= 3.13
+    if sys.version_info >= (3, 13):
+        click.echo(
+            "Warning: paddle2onnx may not support Python 3.13+. "
+            "Use a Python 3.12 environment if conversion fails.",
+            err=True,
+        )
+
+    # Ensure output directory exists
+    _MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Check source models and convert
+    missing_required: list[str] = []
+    converted = 0
+    skipped = 0
+    failed = 0
+
+    for source_name, onnx_name, required in _MODELS:
+        source_dir = _SOURCE_BASE / source_name
+        onnx_path = _MODELS_DIR / onnx_name
+        tmp_path = onnx_path.with_suffix(".onnx.tmp")
+
+        # Check if source exists
+        if not source_dir.exists():
+            if required:
+                missing_required.append(str(source_dir))
+                continue
+            else:
+                click.echo(
+                    f"Skipping optional model {source_name} (source not found)",
+                    err=True,
+                )
+                skipped += 1
+                continue
+
+        # Skip if already converted (unless --force)
+        if onnx_path.exists() and not force:
+            click.echo(f"Skipping {onnx_name} (already exists)", err=True)
+            skipped += 1
+            continue
+
+        click.echo(f"Converting {source_name}...", err=True)
+
+        try:
+            result = subprocess.run(
+                [
+                    "paddle2onnx",
+                    "--model_dir", str(source_dir),
+                    "--model_filename", "inference.json",
+                    "--params_filename", "inference.pdiparams",
+                    "--save_file", str(tmp_path),
+                    "--opset_version", "17",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            click.echo(
+                f"Failed to convert {source_name}: {exc.stderr.strip()}",
+                err=True,
+            )
+            # Clean up partial tmp file
+            if tmp_path.exists():
+                tmp_path.unlink()
+            failed += 1
+            if required:
+                missing_required.append(f"{source_name} (conversion failed)")
+            continue
+
+        # Validate output > 0 bytes
+        if not tmp_path.exists() or tmp_path.stat().st_size == 0:
+            click.echo(
+                f"Failed to convert {source_name}: output file is empty",
+                err=True,
+            )
+            if tmp_path.exists():
+                tmp_path.unlink()
+            failed += 1
+            if required:
+                missing_required.append(f"{source_name} (empty output)")
+            continue
+
+        # Atomic rename
+        tmp_path.rename(onnx_path)
+        click.echo(f"OK: {onnx_name}", err=True)
+        converted += 1
+
+    # Report missing required models
+    if missing_required:
+        click.echo("", err=True)
+        click.echo(
+            "Error: required models could not be set up:", err=True
+        )
+        for m in missing_required:
+            click.echo(f"  - {m}", err=True)
+        click.echo(
+            "\nRun PaddleOCR once with PaddlePaddle to download models, "
+            "or see README.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    click.echo("", err=True)
+    click.echo(
+        f"Setup complete: {converted} converted, {skipped} skipped, {failed} failed.",
+        err=True,
+    )

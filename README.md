@@ -40,63 +40,28 @@ pip install -e .
 
 ## Model setup
 
-Models are not included in the repo (92+ MB). Generate them from PaddleOCR's cached models:
+Models are not included in the repo (92+ MB). The `paddleocr setup` command converts them automatically from PaddleOCR's cached PaddlePaddle models.
+
+### Prerequisites
+
+1. **paddle2onnx** (conversion tool, Python 3.12 recommended — 3.13 not yet supported):
+   ```bash
+   pip install paddle2onnx>=2.0.1
+   ```
+2. **PaddleX source models** cached at `~/.paddlex/official_models/`. If not present, run PaddleOCR once with PaddlePaddle to download them, or download manually from [PaddlePaddle's model hub](https://github.com/PaddlePaddle/PaddleOCR).
+
+### Convert models
 
 ```bash
-# Requires paddle2onnx >= 2.0.1 and Python 3.12 (paddle2onnx doesn't support 3.13 yet)
-pip install paddle2onnx>=2.0.1
-
-# Detection model
-paddle2onnx \
-  --model_dir ~/.paddlex/official_models/PP-OCRv5_server_det \
-  --model_filename inference.json \
-  --params_filename inference.pdiparams \
-  --save_file src/paddleocr_cli/models/PP-OCRv5_server_det.onnx \
-  --opset_version 17
-
-# Recognition model
-paddle2onnx \
-  --model_dir ~/.paddlex/official_models/latin_PP-OCRv5_mobile_rec \
-  --model_filename inference.json \
-  --params_filename inference.pdiparams \
-  --save_file src/paddleocr_cli/models/latin_PP-OCRv5_mobile_rec.onnx \
-  --opset_version 17
-
-# Orientation classifiers
-paddle2onnx \
-  --model_dir ~/.paddlex/official_models/PP-LCNet_x1_0_doc_ori \
-  --model_filename inference.json \
-  --params_filename inference.pdiparams \
-  --save_file src/paddleocr_cli/models/PP-LCNet_x1_0_doc_ori.onnx \
-  --opset_version 17
-
-paddle2onnx \
-  --model_dir ~/.paddlex/official_models/PP-LCNet_x1_0_textline_ori \
-  --model_filename inference.json \
-  --params_filename inference.pdiparams \
-  --save_file src/paddleocr_cli/models/PP-LCNet_x1_0_textline_ori.onnx \
-  --opset_version 17
-
-# Dewarping model
-paddle2onnx \
-  --model_dir ~/.paddlex/official_models/UVDoc \
-  --model_filename inference.json \
-  --params_filename inference.pdiparams \
-  --save_file src/paddleocr_cli/models/UVDoc.onnx \
-  --opset_version 17
+paddleocr setup
 ```
 
-Extract the character dictionary:
+This converts 4 models (detection, recognition, two orientation classifiers) to ONNX format. The command is idempotent — it skips models that already exist. Use `--force` to reconvert all models.
 
-```python
-import json
-with open("~/.paddlex/official_models/latin_PP-OCRv5_mobile_rec/config.json") as f:
-    d = json.load(f)
-with open("src/paddleocr_cli/models/latin_v5_dict.txt", "w") as f:
-    f.write("\n".join(d["PostProcess"]["character_dict"]))
+```bash
+# Reconvert all models (e.g. after a corrupted conversion)
+paddleocr setup --force
 ```
-
-If PaddleOCR models aren't cached yet, run `paddleocr` once with PaddlePaddle to download them, or download manually from [PaddlePaddle's model hub](https://github.com/PaddlePaddle/PaddleOCR).
 
 ## Usage
 
