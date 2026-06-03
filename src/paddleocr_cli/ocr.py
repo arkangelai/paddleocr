@@ -1,7 +1,7 @@
 """PaddleOCR wrapper with validated config from benchmark."""
 
 import tempfile
-from multiprocessing import Pool
+from multiprocessing import Lock, Pool
 from pathlib import Path
 
 from PIL import Image
@@ -9,13 +9,27 @@ from PIL import Image
 from paddleocr_cli.pdf import page_to_image
 
 _ocr_instance = None
+_init_lock = None
+
+
+def _pool_initializer(lock):
+    global _init_lock
+    _init_lock = lock
 
 
 def _get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
-        from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(lang="es", text_det_limit_side_len=960)
+        if _init_lock is not None:
+            _init_lock.acquire()
+            try:
+                from paddleocr import PaddleOCR
+                _ocr_instance = PaddleOCR(lang="es", text_det_limit_side_len=960)
+            finally:
+                _init_lock.release()
+        else:
+            from paddleocr import PaddleOCR
+            _ocr_instance = PaddleOCR(lang="es", text_det_limit_side_len=960)
     return _ocr_instance
 
 
@@ -55,8 +69,9 @@ def ocr_pages(pdf_path: str, pages: list[int], workers: int = 1) -> dict[int, st
                 results[page_num] = text
         return results
 
+    lock = Lock()
     work_items = [(pdf_path, p) for p in pages]
-    with Pool(processes=workers) as pool:
+    with Pool(processes=workers, initializer=_pool_initializer, initargs=(lock,)) as pool:
         results_list = pool.map(_worker_ocr_page, work_items)
 
     return dict(results_list)
