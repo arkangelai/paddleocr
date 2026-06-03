@@ -16,7 +16,7 @@ This CLI uses the same PP-OCRv5 models as PaddleOCR but runs them on ONNX Runtim
 
 ## Benchmark vs alternatives
 
-Tested on 7 Colombian medical documents (SOAT, surgical records, anesthesia forms) against GPT-4o ground truth:
+Tested on 7 Colombian medical documents (SOAT, surgical records, anesthesia forms) against GPT-5.5 ground truth:
 
 | Engine | Word Recall | Word F1 | RAM | Time/page |
 |--------|------------|---------|-----|-----------|
