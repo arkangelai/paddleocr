@@ -1,17 +1,102 @@
 # paddleocr
 
-CLI for PDF text extraction using PaddleOCR. Runs 100% locally — no API keys, no network access.
+CLI for PDF text extraction using PP-OCRv5 models on ONNX Runtime. Runs 100% locally — no API keys, no network access, no PaddlePaddle dependency.
+
+PP-OCRv5 is the #1 open-source OCR engine on [OmniDocBench (CVPR 2025)](https://arxiv.org/html/2412.07626v2) with only 5M parameters — beating models 100x larger.
+
+## Why ONNX Runtime
+
+This CLI uses the same PP-OCRv5 models as PaddleOCR but runs them on ONNX Runtime instead of PaddlePaddle. Same accuracy, dramatically lower resource usage:
+
+| Metric | PaddlePaddle | ONNX Runtime | Improvement |
+|--------|-------------|-------------|-------------|
+| Peak RAM | 16 GB | 1.7 GB | **9.4x less** |
+| Time per page | 26s | 3.4s | **7.7x faster** |
+| RAM at load | 1.2 GB | 120 MB | **10x less** |
+
+## Benchmark vs alternatives
+
+Tested on 7 Colombian medical documents (SOAT, surgical records, anesthesia forms) against GPT-4o ground truth:
+
+| Engine | Word Recall | Word F1 | RAM | Time/page |
+|--------|------------|---------|-----|-----------|
+| **This CLI (ONNX)** | **64.9%** | **67.8%** | **1.7 GB** | **3.4s** |
+| PaddlePaddle (original) | 69.9% | 71.1% | 16 GB | 26s |
+| Tesseract | 39.3% | 43.4% | ~300 MB | ~8s |
+
+On standard documents (clean printed forms): **96-99% word recall** — identical to PaddlePaddle.
 
 ## Requirements
 
 - Python 3.10+
-- ~8 GB RAM (PaddleOCR loads 5 models into memory)
+- ~2 GB RAM
+- ONNX model files (see [Model setup](#model-setup))
 
 ## Install
 
 ```bash
 pip install -e .
 ```
+
+## Model setup
+
+Models are not included in the repo (92+ MB). Generate them from PaddleOCR's cached models:
+
+```bash
+# Requires paddle2onnx >= 2.0.1 and Python 3.12 (paddle2onnx doesn't support 3.13 yet)
+pip install paddle2onnx>=2.0.1
+
+# Detection model
+paddle2onnx \
+  --model_dir ~/.paddlex/official_models/PP-OCRv5_server_det \
+  --model_filename inference.json \
+  --params_filename inference.pdiparams \
+  --save_file src/paddleocr_cli/models/PP-OCRv5_server_det.onnx \
+  --opset_version 17
+
+# Recognition model
+paddle2onnx \
+  --model_dir ~/.paddlex/official_models/latin_PP-OCRv5_mobile_rec \
+  --model_filename inference.json \
+  --params_filename inference.pdiparams \
+  --save_file src/paddleocr_cli/models/latin_PP-OCRv5_mobile_rec.onnx \
+  --opset_version 17
+
+# Orientation classifiers
+paddle2onnx \
+  --model_dir ~/.paddlex/official_models/PP-LCNet_x1_0_doc_ori \
+  --model_filename inference.json \
+  --params_filename inference.pdiparams \
+  --save_file src/paddleocr_cli/models/PP-LCNet_x1_0_doc_ori.onnx \
+  --opset_version 17
+
+paddle2onnx \
+  --model_dir ~/.paddlex/official_models/PP-LCNet_x1_0_textline_ori \
+  --model_filename inference.json \
+  --params_filename inference.pdiparams \
+  --save_file src/paddleocr_cli/models/PP-LCNet_x1_0_textline_ori.onnx \
+  --opset_version 17
+
+# Dewarping model
+paddle2onnx \
+  --model_dir ~/.paddlex/official_models/UVDoc \
+  --model_filename inference.json \
+  --params_filename inference.pdiparams \
+  --save_file src/paddleocr_cli/models/UVDoc.onnx \
+  --opset_version 17
+```
+
+Extract the character dictionary:
+
+```python
+import json
+with open("~/.paddlex/official_models/latin_PP-OCRv5_mobile_rec/config.json") as f:
+    d = json.load(f)
+with open("src/paddleocr_cli/models/latin_v5_dict.txt", "w") as f:
+    f.write("\n".join(d["PostProcess"]["character_dict"]))
+```
+
+If PaddleOCR models aren't cached yet, run `paddleocr` once with PaddlePaddle to download them, or download manually from [PaddlePaddle's model hub](https://github.com/PaddlePaddle/PaddleOCR).
 
 ## Usage
 
@@ -27,7 +112,7 @@ paddleocr ocr --path document.pdf --pages 1,3,5
 # Page range to files
 paddleocr ocr --path document.pdf --pages 1-10 --output-dir ./output
 
-# Parallel processing (2 workers, needs ~16 GB RAM)
+# Parallel processing (2 workers)
 paddleocr ocr --path document.pdf --workers 2 --output-dir ./output
 ```
 
@@ -48,35 +133,43 @@ paddleocr images --path document.pdf --output-dir ./pages --dpi 150
 
 All text output is markdown. When using `--output-dir`, each page is saved as `page_01.md`, `page_02.md`, etc.
 
+## Models
+
+5 PP-OCRv5 models converted to ONNX:
+
+| Model | Size | Function |
+|-------|------|----------|
+| PP-OCRv5_server_det | 84 MB | Text region detection |
+| latin_PP-OCRv5_mobile_rec | 7.7 MB | Latin text recognition (836 chars, 45 languages) |
+| PP-LCNet_x1_0_doc_ori | 6.5 MB | Document orientation (0/90/180/270) |
+| PP-LCNet_x1_0_textline_ori | 6.5 MB | Text line orientation (0/180) |
+| UVDoc | 30 MB | Document dewarping (file present, integration pending) |
+
 ## Performance
 
-Benchmarked on Apple M4 (10 cores, 24 GB RAM) with a 50-page Colombian medical document (SOAT), 300 DPI scans. Each page measured 3 times.
+Benchmarked on Apple M4 (10 cores, 24 GB RAM) with Colombian medical documents (SOAT), 300 DPI.
 
 | Metric | Value |
 |--------|-------|
-| Cold start (model load) | ~4.5s |
-| Average time per page | ~26s |
-| Throughput | ~2.3 pages/min |
-| RAM (model load) | ~1.2 GB |
-| RAM peak (during OCR) | ~7.5 GB |
-| Chars extracted per page | ~2,200 avg |
+| Time per page | ~3.4s |
+| Throughput | ~17 pages/min |
+| RAM at load | ~120 MB |
+| RAM peak | ~1.7 GB |
 
 ### Resource requirements
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
-| RAM | 10 GB | 16 GB |
+| RAM | 4 GB | 8 GB |
 | CPU | 2 cores | 4+ cores |
-| Disk | ~600 MB | ~1 GB |
+| Disk | ~200 MB | ~300 MB |
 | GPU | Not required | Not required |
 
-Processing is CPU-bound at ~100% utilization during OCR. With `--workers 1` (default), a 50-page document takes ~22 minutes. Use `--workers 2` to cut that in half (~11 min) at the cost of ~16 GB RAM.
+## OCR config
 
-## PaddleOCR config
+Validated on Spanish medical documents:
 
-Validated configuration from benchmark testing on Spanish medical documents:
-
-- Language: `es` (Latin recognition model)
-- Detection limit: `960px` side length
-- Input resize: 1/2 before OCR (reduces memory from 6GB+ to ~2.5GB stable)
-- Average speed: ~26s/page on 2 CPU cores
+- Detection: PP-OCRv5 server, `resize_long=960`, stride 128, `box_thresh=0.5`, `unclip_ratio=1.5`
+- Recognition: Latin PP-OCRv5 mobile, height 48px, 836-char dictionary
+- Orientation: automatic document and text line rotation
+- Input resize: 1/2 before OCR
