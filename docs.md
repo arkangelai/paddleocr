@@ -12,7 +12,7 @@ paddleocr ocr --path doc.pdf --pages 1,3
     pdf.py          PyMuPDF converts each page to PNG (300 DPI, tempdir)
         │
         ▼
-    ocr.py          Resize 1/2 with Pillow → PaddleOCR predict → rec_texts
+    onnx_ocr.py     Resize 1/2 → ONNX Runtime inference (det → crop → rec)
         │
         ▼
     output.py       Format as markdown → stdout or page_XX.md files
@@ -22,8 +22,9 @@ paddleocr ocr --path doc.pdf --pages 1,3
 
 ### `cli.py`
 
-Entry point. Click group with 3 subcommands: `ocr`, `info`, `images`.
+Entry point. Click group with 4 subcommands: `setup`, `ocr`, `info`, `images`.
 
+- `setup` — Converts PaddlePaddle models to ONNX format via `paddle2onnx` subprocess. Atomic writes (`.tmp` → `.onnx`), `--force` flag, required/optional model handling.
 - Validates `--path` exists and is a `.pdf` file
 - Parses `--pages` string into `list[int]` (supports `1,3,5` and `1-5`)
 - Progress messages go to stderr, content goes to stdout
@@ -37,12 +38,21 @@ PDF operations using PyMuPDF.
 - `pages_to_images(pdf_path, pages, dpi, output_dir) -> list[Path]` — Batch export
 - `resolve_pages(pdf_path, pages_str) -> list[int]` — Parse page spec, validate bounds
 
+### `onnx_ocr.py`
+
+ONNX Runtime OCR engine. Loads 4 PP-OCRv5 models converted from PaddlePaddle format.
+
+- `OnnxOCR` class — Loads detection, recognition, and orientation models on init
+- Detection: PP-OCRv5 server model, text region proposals
+- Recognition: Latin PP-OCRv5 mobile model, 836-char dictionary
+- Orientation: automatic document (0/90/180/270) and text line (0/180) correction
+- Optional models (doc_ori, textline_ori) gracefully skipped if absent
+
 ### `ocr.py`
 
-PaddleOCR wrapper. Singleton pattern for model reuse across pages.
+Orchestrator. Connects PDF → image → ONNX OCR → text pipeline.
 
-- `_get_ocr()` — Lazy-loads PaddleOCR with `lang='es'`, `text_det_limit_side_len=960`
-- `ocr_image(image_path) -> str` — Resize 1/2, predict, join `rec_texts` with newlines
+- `ocr_image(image_path) -> str` — Resize 1/2, run ONNX inference, join recognized text
 - `ocr_pages(pdf_path, pages) -> dict[int, str]` — Full pipeline: PDF → temp PNGs → OCR → text
 
 ### `output.py`
@@ -54,44 +64,45 @@ Markdown formatting and I/O.
 - `write_pages(results, output_dir) -> list[Path]` — One `page_XX.md` per page
 - `write_or_print(content, output_path)` — Stdout if no path, file otherwise
 
-## PaddleOCR Configuration
+## OCR Configuration
 
-Config comes from benchmark testing on 7 pages of a 50-page Colombian SOAT medical document.
+Config validated by benchmark on 7 Colombian medical documents (SOAT, surgical records, anesthesia forms) against GPT-5.5 ground truth.
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| `lang` | `'es'` | Latin recognition model, handles accents and ñ |
-| `text_det_limit_side_len` | `960` | Sweet spot: captures all printed text without memory explosion |
+| Detection model | PP-OCRv5 server | Best accuracy for printed medical documents |
+| Recognition model | Latin PP-OCRv5 mobile | 836-char dictionary, 45 languages, handles accents and ñ |
+| `resize_long` | `960` | Sweet spot: captures all printed text without memory explosion |
 | Resize factor | `1/2` | 300 DPI scans are too large; halving keeps quality while fitting in RAM |
 
-### Models loaded (cached in `~/.paddlex/official_models/`)
+### Models (ONNX, converted via `paddleocr setup`)
 
 | Model | Function | Size |
 |-------|----------|------|
-| PP-LCNet_x1_0_doc_ori | Document orientation | 6.6 MB |
-| UVDoc | Dewarping | 31 MB |
-| PP-LCNet_x1_0_textline_ori | Text line orientation | 6.6 MB |
-| PP-OCRv5_server_det | Text detection (server) | 84 MB |
-| latin_PP-OCRv5_mobile_rec | Latin recognition (mobile) | 7.9 MB |
+| PP-OCRv5_server_det | Text detection | 84 MB |
+| latin_PP-OCRv5_mobile_rec | Latin text recognition | 7.7 MB |
+| PP-LCNet_x1_0_doc_ori | Document orientation (optional) | 6.5 MB |
+| PP-LCNet_x1_0_textline_ori | Text line orientation (optional) | 6.5 MB |
 
 ## Memory and Performance
 
 | Metric | Value |
 |--------|-------|
-| RAM peak | ~5.7 GB |
-| RAM stable | ~2.5 GB |
+| RAM at load | ~120 MB |
+| RAM peak | ~1.7 GB |
 | CPU | 100% all cores during processing |
-| Speed | ~26s/page (2 CPU cores) |
-| Chars/page | ~2,200 average |
-| Disk | ~600 MB (framework + models) |
+| Speed | ~3.4s/page |
+| Throughput | ~17 pages/min |
+| Disk | ~200 MB (models + dependencies) |
 
-## What PaddleOCR handles well
+## What PP-OCRv5 handles well
 
 - Printed tables (invoices, CUPS codes)
 - Forms with complex layout (FURIPS, policies) — 28/31 fields captured
 - Dense printed text (epicrisis, medical orders)
+- Standard documents (clean printed forms): 96-99% word recall
 
-## What PaddleOCR does NOT handle
+## What PP-OCRv5 does NOT handle
 
 - Handwritten text (produces gibberish)
 - For handwritten content, use a vision LLM (GPT-5.5, Claude Opus) on the PNG output
@@ -104,5 +115,14 @@ Only what's needed:
 |---------|---------|
 | click | CLI framework |
 | pymupdf | PDF → PNG conversion + metadata |
-| paddleocr + paddlepaddle | OCR engine |
+| onnxruntime | ONNX model inference (replaces PaddlePaddle) |
+| opencv-python-headless | Image preprocessing (detection pipeline) |
+| pyclipper | Polygon clipping for text detection |
+| shapely | Geometry operations for bounding boxes |
 | Pillow | Image resize before OCR |
+
+### Setup-only dependency
+
+| Package | Purpose |
+|---------|---------|
+| paddle2onnx | Convert PaddlePaddle models to ONNX (not a runtime dep) |
