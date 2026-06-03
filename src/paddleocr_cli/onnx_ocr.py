@@ -13,8 +13,8 @@ from shapely.geometry import Polygon
 
 _MODELS_DIR = Path(__file__).parent / "models"
 
-_DET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
-_DET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
 
 _RESIZE_LONG = 960
 _STRIDE = 128
@@ -23,6 +23,9 @@ _REC_HEIGHT = 48
 _REC_CHANNELS = 3
 _REC_WIDTH = 320
 _REC_BATCH = 6
+
+_DOC_ORI_LABELS = ["0", "90", "180", "270"]
+_TEXTLINE_ORI_LABELS = ["0_degree", "180_degree"]
 
 
 class OnnxSession:
@@ -71,7 +74,7 @@ def det_preprocess(img: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     ratio_h = resize_h / float(src_h)
     ratio_w = resize_w / float(src_w)
 
-    normalized = (resized.astype(np.float32) / 255.0 - _DET_MEAN) / _DET_STD
+    normalized = (resized.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
     chw = normalized.transpose(2, 0, 1)
     blob = chw[np.newaxis, :].astype(np.float32)
     shape = np.array([[src_h, src_w, ratio_h, ratio_w]], dtype=np.float32)
@@ -305,6 +308,27 @@ def _filter_det_boxes(
     return np.array(filtered) if filtered else np.empty((0, 4, 2), dtype=np.float32)
 
 
+def _cls_preprocess_doc_ori(img: np.ndarray) -> np.ndarray:
+    h, w = img.shape[:2]
+    if h < w:
+        ratio = 256.0 / h
+    else:
+        ratio = 256.0 / w
+    new_h, new_w = int(h * ratio), int(w * ratio)
+    resized = cv2.resize(img, (new_w, new_h))
+    top = (new_h - 224) // 2
+    left = (new_w - 224) // 2
+    cropped = resized[top : top + 224, left : left + 224]
+    normalized = (cropped.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
+    return normalized.transpose(2, 0, 1)[np.newaxis].astype(np.float32)
+
+
+def _cls_preprocess_textline_ori(img: np.ndarray) -> np.ndarray:
+    resized = cv2.resize(img, (160, 80))
+    normalized = (resized.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
+    return normalized.transpose(2, 0, 1)[np.newaxis].astype(np.float32)
+
+
 class OnnxOCR:
     def __init__(self, models_dir: str | Path | None = None, text_score: float = 0.5):
         models_dir = Path(models_dir) if models_dir else _MODELS_DIR
@@ -319,11 +343,50 @@ class OnnxOCR:
         self.ctc_decode = CTCLabelDecode(dict_path)
         self.text_score = text_score
 
+        doc_ori_path = models_dir / "PP-LCNet_x1_0_doc_ori.onnx"
+        if doc_ori_path.exists():
+            self.doc_ori_session = OnnxSession(doc_ori_path)
+        else:
+            self.doc_ori_session = None
+
+        textline_ori_path = models_dir / "PP-LCNet_x1_0_textline_ori.onnx"
+        if textline_ori_path.exists():
+            self.textline_ori_session = OnnxSession(textline_ori_path)
+        else:
+            self.textline_ori_session = None
+
+    def _correct_doc_orientation(self, img: np.ndarray) -> np.ndarray:
+        if self.doc_ori_session is None:
+            return img
+        blob = _cls_preprocess_doc_ori(img)
+        logits = self.doc_ori_session(blob)[0]
+        cls_idx = int(np.argmax(logits[0]))
+        label = _DOC_ORI_LABELS[cls_idx]
+        if label == "90":
+            return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        if label == "180":
+            return cv2.rotate(img, cv2.ROTATE_180)
+        if label == "270":
+            return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        return img
+
+    def _correct_textline_orientation(self, crop: np.ndarray) -> np.ndarray:
+        if self.textline_ori_session is None:
+            return crop
+        blob = _cls_preprocess_textline_ori(crop)
+        logits = self.textline_ori_session(blob)[0]
+        cls_idx = int(np.argmax(logits[0]))
+        if _TEXTLINE_ORI_LABELS[cls_idx] == "180_degree":
+            return cv2.rotate(crop, cv2.ROTATE_180)
+        return crop
+
     def __call__(self, img: np.ndarray) -> list[list] | None:
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.ndim == 3 and img.shape[2] == 4:
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        img = self._correct_doc_orientation(img)
 
         dt_boxes = self._detect(img)
         if dt_boxes is None or len(dt_boxes) == 0:
@@ -331,6 +394,7 @@ class OnnxOCR:
 
         dt_boxes = sorted_boxes(dt_boxes)
         crops = [get_rotate_crop_image(img, copy.deepcopy(box)) for box in dt_boxes]
+        crops = [self._correct_textline_orientation(c) for c in crops]
         rec_results = self._recognize(crops)
 
         output = []
