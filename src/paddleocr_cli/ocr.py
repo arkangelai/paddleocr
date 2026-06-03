@@ -1,10 +1,10 @@
-"""PaddleOCR wrapper with validated config from benchmark."""
+"""ONNX Runtime OCR wrapper with validated config from benchmark."""
 
 import tempfile
 from multiprocessing import Lock, Pool
 from pathlib import Path
 
-from PIL import Image
+import cv2
 
 from paddleocr_cli.pdf import pages_to_images
 
@@ -23,28 +23,27 @@ def _get_ocr():
         if _init_lock is not None:
             with _init_lock:
                 if _ocr_instance is None:
-                    from paddleocr import PaddleOCR
-                    _ocr_instance = PaddleOCR(lang="es", text_det_limit_side_len=960)
+                    from paddleocr_cli.onnx_ocr import OnnxOCR
+                    _ocr_instance = OnnxOCR(
+                        models_dir=str(Path(__file__).parent / "models")
+                    )
         else:
-            from paddleocr import PaddleOCR
-            _ocr_instance = PaddleOCR(lang="es", text_det_limit_side_len=960)
+            from paddleocr_cli.onnx_ocr import OnnxOCR
+            _ocr_instance = OnnxOCR(
+                models_dir=str(Path(__file__).parent / "models")
+            )
     return _ocr_instance
 
 
 def ocr_image(image_path: str | Path, temp_dir: str) -> str:
     ocr = _get_ocr()
-
-    img = Image.open(image_path)
-    img_small = img.resize((img.width // 2, img.height // 2))
-
-    tmp_path = Path(temp_dir) / f"_resized_{Path(image_path).stem}.png"
-    img_small.save(str(tmp_path))
-    result = list(ocr.predict(str(tmp_path)))
-
-    lines = []
-    if result and "rec_texts" in result[0]:
-        lines = result[0]["rec_texts"]
-
+    img = cv2.imread(str(image_path))
+    h, w = img.shape[:2]
+    img_small = cv2.resize(img, (w // 2, h // 2))
+    result = ocr(img_small)
+    if result is None:
+        return ""
+    lines = [item[1] for item in result]
     return "\n".join(lines)
 
 

@@ -1,4 +1,4 @@
-"""CLI entry point for paddleocr."""
+"""CLI entry point for paddleocr-cli."""
 
 import os
 from pathlib import Path
@@ -54,7 +54,7 @@ def _warn_ram(workers: int):
 @click.group()
 @click.version_option(version="0.1.0")
 def main():
-    """PDF text extraction using PaddleOCR."""
+    """PDF text extraction using ONNX Runtime."""
 
 
 @main.command()
@@ -63,7 +63,7 @@ def main():
 @click.option("--output-dir", default=None, help="Save page_XX.md files to this directory.")
 @click.option("--workers", default=1, type=click.IntRange(min=1), help="Number of parallel workers. Default: 1.")
 def ocr(path, pages, output_dir, workers):
-    """Extract text from PDF pages using PaddleOCR."""
+    """Extract text from PDF pages using OCR."""
     page_list = resolve_pages(path, pages)
 
     if workers > 1:
