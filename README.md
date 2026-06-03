@@ -100,7 +100,7 @@ All text output is markdown. When using `--output-dir`, each page is saved as `p
 
 ## Models
 
-5 PP-OCRv5 models converted to ONNX:
+4 PP-OCRv5 models converted to ONNX (installed via `paddleocr setup`):
 
 | Model | Size | Function |
 |-------|------|----------|
@@ -108,7 +108,6 @@ All text output is markdown. When using `--output-dir`, each page is saved as `p
 | latin_PP-OCRv5_mobile_rec | 7.7 MB | Latin text recognition (836 chars, 45 languages) |
 | PP-LCNet_x1_0_doc_ori | 6.5 MB | Document orientation (0/90/180/270) |
 | PP-LCNet_x1_0_textline_ori | 6.5 MB | Text line orientation (0/180) |
-| UVDoc | 30 MB | Document dewarping (file present, integration pending) |
 
 ## Performance
 

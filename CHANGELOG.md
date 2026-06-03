@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-06-03
+
+### Added
+
+- **`paddleocr setup` command** — automatiza la conversion de modelos PaddlePaddle a ONNX en un solo paso
+- Flag `--force` para reconvertir modelos existentes (recuperacion de archivos corruptos)
+- Escritura atomica: convierte a `.onnx.tmp`, renombra a `.onnx` al completar
+- Deteccion de prerequisitos: verifica `paddle2onnx`, modelos fuente, y version de Python
+- Modelos requeridos ausentes → error claro. Opcionales ausentes → warning y skip.
+- Documentacion actualizada: README, SKILL.md, docs.md reflejan era ONNX Runtime + setup automatizado
+
 ## 0.3.0 — 2026-06-03
 
 ### Changed
@@ -14,10 +25,9 @@
 
 - Clasificador de orientacion de documento (`doc_ori`) — rota imagenes 0/90/180/270 grados automaticamente
 - Clasificador de orientacion de linea (`textline_ori`) — corrige lineas invertidas 180 grados
-- Archivo UVDoc.onnx presente para futura integracion de dewarping
 - Modulo `onnx_ocr.py` con pipeline completo: det → crop → rec sobre ONNX Runtime
 
-### Benchmark vs ground truth (Word Recall)
+### Benchmark vs ground truth (GPT-5.5, Word Recall)
 
 | Engine | Word Recall | Word F1 | RAM pico | Tiempo/img |
 |--------|------------|---------|----------|------------|
